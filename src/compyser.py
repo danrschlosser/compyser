@@ -4,12 +4,15 @@
 import time
 import wx
 from wx.lib import intctrl
-from functools import reduce
+import json
+import requests
+import urllib2
 import random 
 import pygame
 import pygame.midi as midi
 from pygame.locals import * #@UnusedWildImport
 from pygame.midi import Input, Output
+
 
 class Compyser(wx.Frame):
     """"""
@@ -106,12 +109,23 @@ class Compyser(wx.Frame):
                   {"name":"bII(M7)",    "type":0,"notes":[1,5,8,12],        "tendency":[0,10,11,12]},                 #30
                   ]
     MIN_CHORD_DIVIDERS = [2,4,9,11,16,18,22,27,30,31]
-    
-    
+        
+    def getTumblrText(self):
+        """"""
+        url="http://api.tumblr.com/v2/blog/"
+        dic = {
+            "base-hostname": "peacecorps.tumblr.com",
+            "api_key":"fB1s5OQbl4Nsoy0B11WSboMoQd85E2q4FVtK1TITMKNb1fGARd",
+            "type":"text",
+            "notes_info":"true",
+            }
+        response = requests.get(url+"{}/posts/{}?api_key={}&{}".format(dic['base-hostname'], dic['type'],dic['api_key'], 'notes_info=true'), params = dic)
+        data = json.loads(response.text)
+        return data['response']['posts'][0]['title']
     
     def __init__(self, parent, size=DEFUALT_WINDOW_SIZE):
         """"""
-        wx.Frame.__init__(self,parent, size=size)
+        wx.Frame.__init__(self,parent, size=size, title=self.getTumblrText())
 #        midex.input_main(1)
         
         #--Font Setup----------------------------------------------------------
@@ -144,14 +158,16 @@ class Compyser(wx.Frame):
         self.harmText = wx.StaticText(self.mainPanel, label="Harmonic Complexity:")
         self.temText = wx.StaticText(self.mainPanel, label="Tempo:")
         
-        self.rhyBox = intctrl.IntCtrl(self.mainPanel, size=(70,-1), value=1, min=1, max=10, 
+        
+        self.rhyBox = intctrl.IntCtrl(self.mainPanel, size=(70,-1), value=5, min=1, max=10, 
                                       limited=True,allow_none=True)
-        self.melBox = intctrl.IntCtrl(self.mainPanel, size=(70,-1), value=1, min=1, max=10, 
+        self.melBox = intctrl.IntCtrl(self.mainPanel, size=(70,-1), value=10, min=1, max=10, 
                                       limited=True,allow_none=True)
-        self.harmBox = intctrl.IntCtrl(self.mainPanel, size=(70,-1), value=1, min=1, max=10, 
+        self.harmBox = intctrl.IntCtrl(self.mainPanel, size=(70,-1), value=10, min=1, max=10, 
                                       limited=True,allow_none=True)
-        self.temBox = intctrl.IntCtrl(self.mainPanel, size=(70,-1), value=120, min=1, max=200,
+        self.temBox = intctrl.IntCtrl(self.mainPanel, size=(70,-1), value=100, min=1, max=200,
                                       limited=True,allow_none=True)
+        
         
         self.console = wx.TextCtrl(self.mainPanel, style= wx.TE_MULTILINE | wx.SUNKEN_BORDER)
         self.console.SetFont(self.consoleFont)
@@ -212,6 +228,7 @@ class Compyser(wx.Frame):
         
         #--Event Binding-------------------------------------------------------
         self.Bind(wx.EVT_BUTTON, self.onRecord, self.recordButton)
+        self.Bind(wx.EVT_BUTTON, self.playSong, self.playButton)
         
         #--Show----------------------------------------------------------------
         self.Show(True)   
@@ -233,24 +250,62 @@ class Compyser(wx.Frame):
                                                    self.MINOR_SCALE)]
         self.write("We are in " +str(self.key)+ ".")
         self.write("The final is "+ str(self.final))
-        self.write("The scale is "+str(self.scale))
         self.write("That's a " +("major" if self.isMajor else "minor")+ " scale!")
         
     def makeSong(self):
         """"""
         #section1
-        rhythm = self.makeRhythm()
+        rhythm = self.makeRhythm(4)
         notes = self.tune
-        while len(rhythm)/2 < notes:
-            notes = notes + notes
-        reps = len(rhythm)/2 - notes
+        while len(rhythm)/2 < len(notes):
+            self.write(str(rhythm))
+            biggest = rhythm[len(rhythm)-1]
+            temp = rhythm[:]
+            for i in temp:
+                self.write(str(i))
+                biggest += i
+                rhythm.append(biggest)
+        reps = len(rhythm)/2 - len(notes)
         while reps !=0:
-            i = random.randint(range(len(notes)))
+            i = random.randint(0, len(notes)-1)
             notes.insert(notes[i],i)
+            reps-=1
         #len(rhythm)/2 == notes.
-        self.pickChords(notes)
+        chords = self.pickChords(notes)
+        self.myNotes = notes
+        self.myRhythm = rhythm
+        self.myChords = chords
+        self.playButton.Enable()
             
+    def playSong(self, e):
+        """"""
+        midi.init()
+        O = Output(midi.get_default_output_id())
+        onNotes=[]
+        notes=[]
+        for y in range(len(self.myChords)):
+            self.myChords[y]=[x+36 for x in self.myChords[y]]
+        for i in range(len(self.myNotes)):
+            notes.append(self.myChords[i]+[(self.myNotes[i])])
+        rhythms = self.myRhythm
+        for i in range(len(self.myNotes)):
+            for k in notes[i]:
+                if k not in onNotes:
+                    O.note_on(k, 127)
+                    onNotes.append(k)
+            time.sleep(rhythms[2*i+1]-rhythms[2*i])
+            for k in notes[i]:
+                if k in onNotes:
+                    onNotes.remove(k)
+                    O.note_off(k)
+        self.pop = wx.POPUP_WINDOW(self,name="Test")
+        del O
+        midi.quit()
+            
+        
     def pickChords(self, tune):
+        """"""
+        self.write("Enter pickChords")
         notes = [(n+12-self.final)%12 for n in tune]
         plex = self.harmBox.GetValue()-1
         chords = []
@@ -262,7 +317,10 @@ class Compyser(wx.Frame):
             note = notes[i]
             found = False
             j = 0
-            while not found:
+            self.write(str(notes[i]))
+            for op in options:
+                self.write(op["name"])
+            while not found and j<len(options):
                 if note in options[j]["notes"]:
                     if len(options[j]["tendency"])==0:
                         chords.append(j)
@@ -275,27 +333,36 @@ class Compyser(wx.Frame):
                                 chords.append(k)
                                 found = True
                                 i+=1
+                j+=1
+            if not found:
+                self.write("damn.")
+                chords.append([0,0,0])
             i+=1
-        return [[n+self.final for n in options[c]["notes"]] for c in chords]
+        for c in range(len(chords)):
+            self.write(options[c])
+        for c in range(len(chords)):
+            chords[c]=[n+self.final for n in options[c]["notes"]]
+        return chords
         
-    def makeRhythm(self):
+    def makeRhythm(self, length):
         """"""
+        self.write("makeRhythm")
         self.tempo=self.temBox.GetValue()
         plex = self.rhyBox.GetValue()-1
         #rhythms = reduce((lambda x,y: x+y), self.RHYTHMS[:self.RHYTHM_DIVIDERS[plex]])
         rhythms = self.RHYTHMS[:self.RHYTHM_DIVIDERS[plex]]
         beat = []
         total = 0
-        while total <4:
-            rhyth = rhythms[random.randint(range(len(rhythms)))]
-            if total + sum(rhyth) <=4:
+        while total <length:
+            rhyth = rhythms[random.randint(0, len(rhythms)-1)]
+            if total + sum(rhyth) <=length:
                 for note in rhyth:
                     beat.append(total)
-                    if random.random()<.3: #rest
-                        beat.append(total)
-                    else:
-                        beat.append(total+note)
                     total+=note
+                    beat.append(total)
+                    
+#        return beat
+        
         return [b*1.0/self.tempo*60 for b in beat]
     
     def onRecord(self, e):
