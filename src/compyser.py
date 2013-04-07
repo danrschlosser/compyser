@@ -142,13 +142,16 @@ class Compyser(wx.Frame):
         self.rhyText = wx.StaticText(self.mainPanel, label="Rhythmic Complexity:")
         self.melText = wx.StaticText(self.mainPanel, label="Melodic Complexity:")
         self.harmText = wx.StaticText(self.mainPanel, label="Harmonic Complexity:")
+        self.temText = wx.StaticText(self.mainPanel, label="Tempo:")
         
-        self.rhyBox = intctrl.IntCtrl(self.mainPanel, size=(50,-1), value=1, min=1, max=10, 
-                                      limited=True,)
-        self.melBox = intctrl.IntCtrl(self.mainPanel, size=(50,-1), value=1, min=1, max=10, 
-                                      limited=True,)
-        self.harmBox = intctrl.IntCtrl(self.mainPanel, size=(50,-1), value=1, min=1, max=10, 
-                                      limited=True,)
+        self.rhyBox = intctrl.IntCtrl(self.mainPanel, size=(70,-1), value=1, min=1, max=10, 
+                                      limited=True,allow_none=True)
+        self.melBox = intctrl.IntCtrl(self.mainPanel, size=(70,-1), value=1, min=1, max=10, 
+                                      limited=True,allow_none=True)
+        self.harmBox = intctrl.IntCtrl(self.mainPanel, size=(70,-1), value=1, min=1, max=10, 
+                                      limited=True,allow_none=True)
+        self.temBox = intctrl.IntCtrl(self.mainPanel, size=(70,-1), value=120, min=1, max=200,
+                                      limited=True,allow_none=True)
         
         self.console = wx.TextCtrl(self.mainPanel, style= wx.TE_MULTILINE | wx.SUNKEN_BORDER)
         self.console.SetFont(self.consoleFont)
@@ -166,6 +169,8 @@ class Compyser(wx.Frame):
         self.textSizer.AddStretchSpacer(1)
         self.textSizer.Add(self.harmText, 0, wx.ALIGN_RIGHT|wx.LEFT, border=5)
         self.textSizer.AddStretchSpacer(1)
+        self.textSizer.Add(self.temText, 0, wx.ALIGN_RIGHT|wx.LEFT, border=5)
+        self.textSizer.AddStretchSpacer(1)
         
         self.intSizer = wx.BoxSizer(wx.VERTICAL)
         self.intSizer.AddStretchSpacer(1)
@@ -174,6 +179,8 @@ class Compyser(wx.Frame):
         self.intSizer.Add(self.melBox, 0)
         self.intSizer.AddStretchSpacer(1)
         self.intSizer.Add(self.harmBox, 0)
+        self.intSizer.AddStretchSpacer(1)
+        self.intSizer.Add(self.temBox, 0)
         self.intSizer.AddStretchSpacer(1)
         
         self.leftSizer = wx.BoxSizer(wx.VERTICAL)
@@ -231,9 +238,49 @@ class Compyser(wx.Frame):
         
     def makeSong(self):
         """"""
+        #section1
+        rhythm = self.makeRhythm()
+        notes = self.tune
+        while len(rhythm)/2 < notes:
+            notes = notes + notes
+        reps = len(rhythm)/2 - notes
+        while reps !=0:
+            i = random.randint(range(len(notes)))
+            notes.insert(notes[i],i)
+        #len(rhythm)/2 == notes.
+        self.pickChords(notes)
+            
+    def pickChords(self, tune):
+        notes = [(n+12-self.final)%12 for n in tune]
+        plex = self.harmBox.GetValue()-1
+        chords = []
+        options = []
+        if self.isMajor:
+            options = self.MAJ_CHORDS[:self.MAJ_CHORD_DIVIDERS[plex]]
+        i = 0
+        while i < len(notes):
+            note = notes[i]
+            found = False
+            j = 0
+            while not found:
+                if note in options[j]["notes"]:
+                    if len(options[j]["tendency"])==0:
+                        chords.append(j)
+                        found=True;
+                    elif i+1 < len(notes):
+                        for k in options[j]["tendency"]:
+                            if (k < len(options) and notes[i+1] in options[k]["notes"] and 
+                                len(options[k]["tendency"])==0):
+                                chords.append(j)
+                                chords.append(k)
+                                found = True
+                                i+=1
+            i+=1
+        return [[n+self.final for n in options[c]["notes"]] for c in chords]
         
     def makeRhythm(self):
         """"""
+        self.tempo=self.temBox.GetValue()
         plex = self.rhyBox.GetValue()-1
         #rhythms = reduce((lambda x,y: x+y), self.RHYTHMS[:self.RHYTHM_DIVIDERS[plex]])
         rhythms = self.RHYTHMS[:self.RHYTHM_DIVIDERS[plex]]
@@ -243,8 +290,13 @@ class Compyser(wx.Frame):
             rhyth = rhythms[random.randint(range(len(rhythms)))]
             if total + sum(rhyth) <=4:
                 for note in rhyth:
-                    if random.random()<.3:
-                        
+                    beat.append(total)
+                    if random.random()<.3: #rest
+                        beat.append(total)
+                    else:
+                        beat.append(total+note)
+                    total+=note
+        return [b*1.0/self.tempo*60 for b in beat]
     
     def onRecord(self, e):
         """"""
@@ -288,10 +340,6 @@ class Compyser(wx.Frame):
             finally:
                 del midiIn
                 midi.quit()
-
-class chord(Object):
-    
-    def __init__(self,notes,): 
     
     
 if __name__ == '__main__': 
